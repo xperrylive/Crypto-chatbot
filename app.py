@@ -593,7 +593,7 @@ def ask_gemini_general(user_message):
             """
         elif question_type == 'creative':
             prompt = f"""
-            You are a creative AI assistant. Please provide an engaging, creative response to the following request.
+            You are a creative AI assistant, Please provide an engaging, creative response to the following request.
             Feel free to be imaginative while being helpful.
             
             Request: {user_message}
