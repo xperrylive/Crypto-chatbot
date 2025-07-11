@@ -12,8 +12,8 @@ load_dotenv()
 app = Flask(__name__)
 
 # API Configuration
-GEMINI_API_KEY= "AIzaSyDtBavYsdZgy4CNr4jqQzNqRhPApQIZGT4"
-ALPHA_VANTAGE_API_KEY= "E7GA52EAIO85QVS3"
+GEMINI_API_KEY= ""
+ALPHA_VANTAGE_API_KEY= ""
 GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'
 
 @app.route('/')
