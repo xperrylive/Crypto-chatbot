@@ -1,0 +1,161 @@
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #141e30, #243b55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+  min-height: 100vh;
+}
+
+/* Layout Wrapper */
+.main-wrapper {
+  width: 100%;
+  max-width: 800px;
+}
+
+/* Chat Card */
+.chat-card {
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.chat-header {
+  background: linear-gradient(to right, #2c3e50, #4ca1af);
+  padding: 1.5rem;
+  color: white;
+  text-align: center;
+}
+
+.chat-header h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Chat Body */
+.chat-body {
+  height: 460px;
+  overflow-y: auto;
+  padding: 1.2rem;
+  background: #f5f7fa;
+}
+
+.message {
+  display: flex;
+  margin-bottom: 1rem;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.message.bot {
+  justify-content: flex-start;
+}
+
+.bubble {
+  padding: 1rem 1.2rem;
+  border-radius: 16px;
+  max-width: 80%;
+  font-size: 1rem;
+  line-height: 1.6;
+  background: #e1eaf5;
+  color: #222;
+}
+
+.message.user .bubble {
+  background: #3498db;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.message.bot .bubble {
+  background: #f1f1f1;
+  border-bottom-left-radius: 4px;
+}
+
+/* Input Area */
+.chat-footer {
+  display: flex;
+  padding: 1rem;
+  border-top: 1px solid #ddd;
+  background: #fff;
+}
+
+#userInput {
+  flex: 1;
+  padding: 0.9rem 1rem;
+  border: 2px solid #ccc;
+  border-radius: 25px;
+  font-size: 1rem;
+  transition: 0.3s;
+}
+
+#userInput:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+#sendButton {
+  margin-left: 10px;
+  padding: 0.9rem 1.4rem;
+  background: #3498db;
+  color: #fff;
+  border: none;
+  border-radius: 25px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+#sendButton:hover {
+  background: #2980b9;
+}
+
+/* Suggestions */
+.suggestions {
+  padding: 1rem;
+  background: #f8f9fb;
+  border-top: 1px solid #eee;
+}
+
+.suggestions h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #444;
+}
+
+.suggestion-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.suggestion-buttons button {
+  background: white;
+  border: 2px solid #3498db;
+  color: #3498db;
+  border-radius: 20px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.suggestion-buttons button:hover {
+  background: #3498db;
+  color: white;
+}

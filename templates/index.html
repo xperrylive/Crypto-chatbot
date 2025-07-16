@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FinanceBot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="main-wrapper">
+    <div class="chat-card">
+      <header class="chat-header">
+        <h1>FinanceBot</h1>
+        <p>Ask me anything about crypto, stocks, or financial terms.</p>
+      </header>
+
+      <div class="chat-body" id="chatBox">
+        <div class="message bot">
+          <div class="bubble">Hello! I can help you with prices, definitions, and financial advice.</div>
+        </div>
+      </div>
+
+      <div class="chat-footer">
+        <input type="text" id="userInput" placeholder="Ask your financial question..." />
+        <button id="sendButton" onclick="sendMessage()">Send</button>
+      </div>
+
+      <div class="suggestions">
+        <h3>Try asking:</h3>
+        <div class="suggestion-buttons">
+          <button onclick="fillExample('What is the price of Bitcoin?')">Bitcoin</button>
+          <button onclick="fillExample('Tesla stock price')">Tesla</button>
+          <button onclick="fillExample('Define inflation')">Inflation</button>
+          <button onclick="fillExample('Best way to invest')">Investing</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function sendMessage() {
+      const input = document.getElementById("userInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage("user", text);
+      input.value = "";
+
+      const typingId = addTyping();
+
+      fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text })
+      })
+      .then(res => res.json())
+      .then(data => {
+        removeTyping(typingId);
+        addMessage("bot", data.response || "Sorry, I didn’t understand.");
+      })
+      .catch(() => {
+        removeTyping(typingId);
+        addMessage("bot", "⚠ Error, please try again.");
+      });
+    }
+
+    function addMessage(sender, text) {
+      const chatBox = document.getElementById("chatBox");
+      const msg = document.createElement("div");
+      msg.className = `message ${sender}`;
+      msg.innerHTML = `<div class="bubble">${text.replace(/\n/g, "<br>")}</div>`;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addTyping() {
+      const id = "typing-" + Date.now();
+      const chatBox = document.getElementById("chatBox");
+      const typing = document.createElement("div");
+      typing.id = id;
+      typing.className = "message bot";
+      typing.innerHTML = `<div class="bubble">Typing...</div>`;
+      chatBox.appendChild(typing);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return id;
+    }
+
+    function removeTyping(id) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+
+    function fillExample(text) {
+      document.getElementById("userInput").value = text;
+      document.getElementById("userInput").focus();
+    }
+
+    document.getElementById("userInput").addEventListener("keypress", e => {
+      if (e.key === "Enter") sendMessage();
+    });
+  </script>
+</body>
+</html>
