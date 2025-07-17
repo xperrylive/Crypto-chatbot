@@ -4,11 +4,13 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+
 app = Flask(__name__)
 
-# Simple conversation memory - stores last context for each session
+# Enhanced conversation memory - stores full conversation history for each session
 conversation_memory = {}
 load_dotenv()
+
 
 # Your existing function - unchanged
 def analyze_user_input(user_input):
@@ -199,8 +201,83 @@ def get_stock_info(symbol):
         return {'success': False, 'error': f'Error fetching stock data: {str(e)}'}
 
 
-# Function 3: Answer financial queries and greetings using Groq - FIXED
-def answer_financial_query(user_input, intent, symbol=None, session_id="default", previous_context=None):
+# FIXED: Enhanced conversation memory management
+def get_conversation_history(session_id):
+    """Get the conversation history for a session"""
+    if session_id not in conversation_memory:
+        conversation_memory[session_id] = {
+            'messages': [],
+            'last_topic': None,
+            'last_intent': None
+        }
+    return conversation_memory[session_id]
+
+
+def add_to_conversation(session_id, user_message, assistant_response, intent=None, topic=None):
+    """Add a message pair to the conversation history"""
+    history = get_conversation_history(session_id)
+
+    # Add user message
+    history['messages'].append({
+        'role': 'user',
+        'content': user_message,
+        'timestamp': datetime.now().isoformat()
+    })
+
+    # Add assistant response
+    history['messages'].append({
+        'role': 'assistant',
+        'content': assistant_response,
+        'timestamp': datetime.now().isoformat()
+    })
+
+    # Update metadata
+    if intent:
+        history['last_intent'] = intent
+    if topic:
+        history['last_topic'] = topic
+
+    # Keep only last 10 messages (5 pairs) to manage memory
+    if len(history['messages']) > 10:
+        history['messages'] = history['messages'][-10:]
+
+
+def is_follow_up_query(user_input, session_id):
+    """Enhanced follow-up detection"""
+    follow_up_phrases = [
+        'yes', 'tell me more', 'continue', 'more', 'go on', 'next', 'elaborate',
+        'what else', 'anything else', 'more details', 'explain more', 'keep going',
+        'and then', 'what about', 'how about', 'also', 'additionally'
+    ]
+
+    # Personal/contextual questions that need conversation history
+    personal_questions = [
+        'my name', 'what\'s my name', 'who am i', 'remember me', 'do you remember',
+        'what did i say', 'what did i ask', 'earlier', 'before'
+    ]
+
+    user_lower = user_input.lower().strip()
+
+    # Check if it's a personal/contextual question
+    if any(phrase in user_lower for phrase in personal_questions):
+        return True
+
+    # Check if it's a short follow-up response
+    if len(user_input.split()) <= 4 and any(phrase in user_lower for phrase in follow_up_phrases):
+        return True
+
+    # Check if there's recent conversation history
+    history = get_conversation_history(session_id)
+    if len(history['messages']) > 0:
+        # If user input is very short and we have recent context, it's likely a follow-up
+        if len(user_input.split()) <= 2 and len(history['messages']) >= 2:
+            return True
+
+    return False
+
+
+# Function 3: FIXED Answer financial queries with proper conversation context
+def answer_financial_query(user_input, intent, symbol=None, session_id="default"):
     try:
         # Handle common greetings with short responses
         greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy']
@@ -216,42 +293,78 @@ def answer_financial_query(user_input, intent, symbol=None, session_id="default"
             "Content-Type": "application/json"
         }
 
-        # Initialize messages array for all cases
-        messages = []
+        # Get conversation history
+        history = get_conversation_history(session_id)
+        is_follow_up = is_follow_up_query(user_input, session_id)
 
         if intent == "unknown":
-            system_msg = "You are a helpful financial assistant. Give a very short, polite response (max 15 words) redirecting to financial topics."
-            user_prompt = f"The user asked: '{user_input}'. Give a brief response redirecting to financial topics."
+            # For non-financial topics, use conversation history but redirect to finance
+            system_msg = """You are a helpful financial assistant. You remember personal details from previous conversations (names, preferences, etc.) and should use them when appropriate.
 
-            messages = [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": user_prompt}
-            ]
-        else:
-            system_msg = """You are a knowledgeable financial assistant. You provide helpful, detailed information about finance, investing, cryptocurrencies, stocks, and economic concepts. 
+However, you should only discuss financial topics. For non-financial questions:
+1. If it's a personal question (like "what's my name"), acknowledge the personal info from conversation history
+2. Then politely redirect back to financial topics
+3. Keep responses brief (max 30 words) and always end with a financial question or topic
 
-When users ask about trading, investing, or financial strategies, provide comprehensive guidance including:
-- Step-by-step instructions
-- Risk management tips
-- Practical advice
-- Specific recommendations
+Example: "Your name is [name from history]! Now, what financial goals can I help you achieve today?"
 
-Be conversational and helpful. If a user responds with "yes", "tell me more", "continue", or asks for more information, continue the conversation naturally and provide the next logical step or more detailed information based on the previous context."""
+Be warm but focused on finance."""
 
-            # Build conversation context
+            # Build messages with conversation history
             messages = [{"role": "system", "content": system_msg}]
 
-            # Add previous context if available
-            if previous_context:
-                messages.append({"role": "assistant", "content": previous_context})
+            # Add recent conversation history for context (last 6 messages)
+            if history['messages']:
+                recent_messages = history['messages'][-6:]  # Last 3 pairs
+                for msg in recent_messages:
+                    messages.append({
+                        "role": msg['role'],
+                        "content": msg['content']
+                    })
 
+            # Add current user message
+            messages.append({"role": "user", "content": user_input})
+        else:
+            # For financial topics, use full conversation context
+            system_msg = """You are a knowledgeable financial assistant. You provide helpful, detailed information about finance, investing, cryptocurrencies, stocks, and economic concepts. 
+
+IMPORTANT: You have access to conversation history and should remember personal details shared by users (like names, preferences, previous questions). Always use this information to provide personalized responses.
+
+RESPONSE STYLE:
+- Keep answers SHORT, CLEAR, and SIMPLE
+- Maximum 3-4 sentences per response
+- Use bullet points only when absolutely necessary
+- Be direct and concise
+- If the topic is complex, give a brief overview and ask if they want more details
+
+When users ask about trading, investing, or financial strategies, provide:
+- Key points only (not step-by-step unless requested)
+- Essential information
+- Brief practical advice
+- Ask if they need more details
+
+Be conversational and helpful. Use the conversation history to provide contextual responses."""
+
+            # Build messages with conversation history
+            messages = [{"role": "system", "content": system_msg}]
+
+            # Add recent conversation history for context (last 6 messages to reduce context)
+            if history['messages']:
+                recent_messages = history['messages'][-6:]  # Last 3 pairs
+                for msg in recent_messages:
+                    messages.append({
+                        "role": msg['role'],
+                        "content": msg['content']
+                    })
+
+            # Add current user message
             messages.append({"role": "user", "content": user_input})
 
         payload = {
             "model": "llama3-8b-8192",
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 300
+            "max_tokens": 150  # Reduced from 400 to force shorter responses
         }
 
         response = requests.post(url, headers=headers, json=payload)
@@ -287,21 +400,21 @@ def chat():
 
         print(f"DEBUG: User input: '{user_input}'")
         print(f"DEBUG: Analysis result: {analysis}")
+        print(f"DEBUG: Session ID: {session_id}")
 
-        # Get previous context from memory
-        previous_context = conversation_memory.get(session_id, {}).get('last_response')
+        # Check if this is a follow-up query or personal question
+        is_follow_up = is_follow_up_query(user_input, session_id)
+        print(f"DEBUG: Is follow-up: {is_follow_up}")
 
-        # Check if this is a follow-up response (yes, tell me more, continue, etc.)
-        follow_up_words = ['yes', 'tell me more', 'continue', 'more', 'go on', 'next', 'elaborate']
-        is_follow_up = any(word in user_input.lower() for word in follow_up_words) and len(user_input.split()) <= 3
+        # Don't override intent - let the original classification handle it
+        # Personal questions should be classified as "unknown" and handled with redirection
 
         # Route to appropriate function based on intent
         if intent == "crypto_price":
             if symbol:
                 crypto_data = get_crypto_info(symbol)
                 if crypto_data['success']:
-                    response = f"""
-🪙 *{crypto_data['name']} ({crypto_data['symbol']})*
+                    response = f"""🪙 *{crypto_data['name']} ({crypto_data['symbol']})*
 
 💰 *Current Price*: ${crypto_data['current_price']:,.2f}
 📈 *24h Change*: {crypto_data['price_change_24h']}%
@@ -319,25 +432,26 @@ def chat():
 
                     response += f"\n\n*Last Updated: {crypto_data['last_updated']}*"
 
-                    # Store in conversation memory
-                    conversation_memory[session_id] = {
-                        'last_response': response.strip(),
-                        'last_topic': f"crypto data for {crypto_data['name']}"
-                    }
+                    # Add to conversation history
+                    add_to_conversation(session_id, user_input, response.strip(), intent,
+                                        f"crypto data for {crypto_data['name']}")
 
                     return jsonify({'response': response.strip()})
                 else:
-                    return jsonify({'response': f"❌ {crypto_data['error']}"})
+                    error_response = f"❌ {crypto_data['error']}"
+                    add_to_conversation(session_id, user_input, error_response, intent)
+                    return jsonify({'response': error_response})
             else:
-                return jsonify({'response': '❌ Could not identify cryptocurrency symbol'})
+                error_response = '❌ Could not identify cryptocurrency symbol'
+                add_to_conversation(session_id, user_input, error_response, intent)
+                return jsonify({'response': error_response})
 
         elif intent == "stock_price":
             if symbol:
                 stock_data = get_stock_info(symbol)
                 if stock_data['success']:
                     change_emoji = "📈" if stock_data['change'] >= 0 else "📉"
-                    response = f"""
-📊 *{stock_data['symbol']} Stock Information*
+                    response = f"""📊 *{stock_data['symbol']} Stock Information*
 
 💰 *Current Price*: ${stock_data['current_price']:.2f}
 {change_emoji} *Change*: {stock_data['change']:+.2f} ({stock_data['change_percent']}%)
@@ -346,43 +460,49 @@ def chat():
 ⬇ *Low*: ${stock_data['low']:.2f}
 📊 *Volume*: {stock_data['volume']:,}
 
-Last Updated: {stock_data['last_updated']}
-                    """
+Last Updated: {stock_data['last_updated']}"""
 
-                    # Store in conversation memory
-                    conversation_memory[session_id] = {
-                        'last_response': response.strip(),
-                        'last_topic': f"stock data for {stock_data['symbol']}"
-                    }
+                    # Add to conversation history
+                    add_to_conversation(session_id, user_input, response.strip(), intent,
+                                        f"stock data for {stock_data['symbol']}")
 
                     return jsonify({'response': response.strip()})
                 else:
-                    return jsonify({'response': f"❌ {stock_data['error']}"})
+                    error_response = f"❌ {stock_data['error']}"
+                    add_to_conversation(session_id, user_input, error_response, intent)
+                    return jsonify({'response': error_response})
             else:
-                return jsonify({'response': '❌ Could not identify stock symbol'})
+                error_response = '❌ Could not identify stock symbol'
+                add_to_conversation(session_id, user_input, error_response, intent)
+                return jsonify({'response': error_response})
 
         # Handle all other cases (define, unknown, and general financial queries)
         else:
-            # For follow-up responses, use previous context
-            context_to_use = previous_context if is_follow_up else None
-
-            financial_response = answer_financial_query(user_input, intent, symbol, session_id, context_to_use)
+            financial_response = answer_financial_query(user_input, intent, symbol, session_id)
             if financial_response['success']:
                 response = financial_response['response']
 
-                # Store in conversation memory
-                conversation_memory[session_id] = {
-                    'last_response': response,
-                    'last_topic': user_input if not is_follow_up else conversation_memory.get(session_id, {}).get(
-                        'last_topic', user_input)
-                }
+                # Add to conversation history
+                add_to_conversation(session_id, user_input, response, intent, user_input)
 
                 return jsonify({'response': response})
             else:
-                return jsonify({'response': f"❌ {financial_response['error']}"})
+                error_response = f"❌ {financial_response['error']}"
+                add_to_conversation(session_id, user_input, error_response, intent)
+                return jsonify({'response': error_response})
 
     except Exception as e:
-        return jsonify({'error': f'An error occurred: {str(e)}'})
+        error_response = f'An error occurred: {str(e)}'
+        return jsonify({'error': error_response})
+
+
+# Optional: Add endpoint to clear conversation history
+@app.route('/clear_history', methods=['POST'])
+def clear_history():
+    session_id = request.json.get('session_id', request.remote_addr or 'default')
+    if session_id in conversation_memory:
+        del conversation_memory[session_id]
+    return jsonify({'success': True, 'message': 'Conversation history cleared'})
 
 
 if __name__ == '__main__':
