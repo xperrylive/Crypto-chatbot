@@ -5,36 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FinanceBot</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="main-wrapper">
-    <div class="chat-card">
-      <header class="chat-header">
-        <h1>FinanceBot</h1>
-        <p>Ask me anything about crypto, stocks, or financial terms.</p>
-      </header>
+  <header class="chat-header">
+    <h1>FinanceBot</h1>
+    <p>Your intelligent financial assistant for crypto, stocks, and market insights</p>
+  </header>
 
-      <div class="chat-body" id="chatBox">
-        <div class="message bot">
-          <div class="bubble">Hello! I can help you with prices, definitions, and financial advice.</div>
-        </div>
-      </div>
+  <div class="chat-body" id="chatBox">
+    <div class="message bot">
+      <div class="bubble">Hello! I'm your financial assistant. I can help you with real-time prices, market analysis, and investment insights. What would you like to know?</div>
+    </div>
+  </div>
 
-      <div class="chat-footer">
-        <input type="text" id="userInput" placeholder="Ask your financial question..." />
-        <button id="sendButton" onclick="sendMessage()">Send</button>
-      </div>
+  <div class="chat-footer">
+    <div class="input-container">
+      <input type="text" id="userInput" placeholder="Ask about crypto, stocks, or financial advice..." />
+      <button id="sendButton" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
 
-      <div class="suggestions">
-        <h3>Try asking:</h3>
-        <div class="suggestion-buttons">
-          <button onclick="fillExample('What is the price of Bitcoin?')">Bitcoin</button>
-          <button onclick="fillExample('Tesla stock price')">Tesla</button>
-          <button onclick="fillExample('Define inflation')">Inflation</button>
-          <button onclick="fillExample('Best way to invest')">Investing</button>
-        </div>
-      </div>
+  <div class="suggestions">
+    <h3>Popular Questions</h3>
+    <div class="suggestion-buttons">
+      <button onclick="fillExample('What is the current price of Bitcoin?')">Bitcoin Price</button>
+      <button onclick="fillExample('How is Tesla stock performing?')">Tesla Stock</button>
+      <button onclick="fillExample('Explain what inflation means')">Inflation</button>
+      <button onclick="fillExample('Best investment strategies for beginners')">Investment Tips</button>
+      <button onclick="fillExample('Ethereum vs Bitcoin comparison')">Crypto Comparison</button>
     </div>
   </div>
 
@@ -57,11 +56,11 @@
       .then(res => res.json())
       .then(data => {
         removeTyping(typingId);
-        addMessage("bot", data.response || "Sorry, I didn’t understand.");
+        addMessage("bot", data.response || "Sorry, I didn't understand that. Could you rephrase your question?");
       })
       .catch(() => {
         removeTyping(typingId);
-        addMessage("bot", "⚠ Error, please try again.");
+        addMessage("bot", "⚠ Connection error. Please check your internet and try again.");
       });
     }
 
@@ -80,7 +79,7 @@
       const typing = document.createElement("div");
       typing.id = id;
       typing.className = "message bot";
-      typing.innerHTML = `<div class="bubble">Typing...</div>`;
+      typing.innerHTML = `<div class="bubble">Analyzing your request...</div>`;
       chatBox.appendChild(typing);
       chatBox.scrollTop = chatBox.scrollHeight;
       return id;
