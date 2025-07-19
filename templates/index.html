@@ -9,35 +9,48 @@
 </head>
 <body>
   <header class="chat-header">
-    <h1>FinanceBot</h1>
-    <p>Your intelligent financial assistant for crypto, stocks, and market insights</p>
+    <h1>💰 FinanceBot</h1>
+    <p>Your intelligent financial assistant for crypto, stocks, charts, and market insights</p>
   </header>
 
   <div class="chat-body" id="chatBox">
     <div class="message bot">
-      <div class="bubble">Hello! I'm your financial assistant. I can help you with real-time prices, market analysis, and investment insights. What would you like to know?</div>
+      <div class="bubble">👋 Hello! I'm your financial assistant. I can help you with:
+        <br><br>
+        📈 Real-time crypto & stock prices<br>
+        📊 Interactive price charts<br>
+        💡 Market analysis & insights<br>
+        📚 Financial definitions<br>
+        <br>
+        What would you like to explore today?</div>
     </div>
   </div>
 
   <div class="chat-footer">
     <div class="input-container">
-      <input type="text" id="userInput" placeholder="Ask about crypto, stocks, or financial advice..." />
+      <input type="text" id="userInput" placeholder="Ask about crypto, stocks, charts, or financial advice..." />
       <button id="sendButton" onclick="sendMessage()">Send</button>
     </div>
   </div>
 
   <div class="suggestions">
-    <h3>Popular Questions</h3>
+    <h3>💡 Try These Popular Queries</h3>
     <div class="suggestion-buttons">
-      <button onclick="fillExample('What is the current price of Bitcoin?')">Bitcoin Price</button>
-      <button onclick="fillExample('How is Tesla stock performing?')">Tesla Stock</button>
-      <button onclick="fillExample('Explain what inflation means')">Inflation</button>
-      <button onclick="fillExample('Best investment strategies for beginners')">Investment Tips</button>
-      <button onclick="fillExample('Ethereum vs Bitcoin comparison')">Crypto Comparison</button>
+      <button onclick="fillExample('What is the current price of Bitcoin?')">🪙 Bitcoin Price</button>
+      <button onclick="fillExample('How is Tesla stock performing?')">📈 Tesla Stock</button>
+      <button onclick="fillExample('Show me Ethereum chart for 30 days')">📊 ETH Chart</button>
+      <button onclick="fillExample('AAPL stock chart 1 year')">📉 Apple Chart</button>
+      <button onclick="fillExample('Explain what inflation means')">💭 Inflation</button>
+      <button onclick="fillExample('Best investment strategies for beginners')">🎯 Investment Tips</button>
+      <button onclick="fillExample('Ethereum vs Bitcoin comparison')">⚖️ Crypto Compare</button>
+      <button onclick="fillExample('What is market cap?')">🏦 Market Cap</button>
     </div>
   </div>
 
   <script>
+    // Generate unique session ID for conversation memory
+    const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
     function sendMessage() {
       const input = document.getElementById("userInput");
       const text = input.value.trim();
@@ -51,16 +64,32 @@
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({
+          message: text,
+          session_id: sessionId
+        })
       })
       .then(res => res.json())
       .then(data => {
         removeTyping(typingId);
-        addMessage("bot", data.response || "Sorry, I didn't understand that. Could you rephrase your question?");
+
+        if (data.response) {
+          addMessage("bot", data.response);
+
+          // Handle chart display if present
+          if (data.chart) {
+            addChart(data.chart);
+          }
+        } else if (data.error) {
+          addMessage("bot", "❌ " + data.error);
+        } else {
+          addMessage("bot", "❓ Sorry, I didn't understand that. Could you rephrase your question?");
+        }
       })
-      .catch(() => {
+      .catch(error => {
         removeTyping(typingId);
-        addMessage("bot", "⚠ Connection error. Please check your internet and try again.");
+        console.error('Error:', error);
+        addMessage("bot", "⚠️ Connection error. Please check your internet and try again.");
       });
     }
 
@@ -68,8 +97,28 @@
       const chatBox = document.getElementById("chatBox");
       const msg = document.createElement("div");
       msg.className = `message ${sender}`;
-      msg.innerHTML = `<div class="bubble">${text.replace(/\n/g, "<br>")}</div>`;
+
+      // Format text with proper line breaks and styling
+      const formattedText = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // Bold text
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')              // Italic text
+        .replace(/\n/g, "<br>");                            // Line breaks
+
+      msg.innerHTML = `<div class="bubble">${formattedText}</div>`;
       chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addChart(chartData) {
+      const chatBox = document.getElementById("chatBox");
+      const chartMsg = document.createElement("div");
+      chartMsg.className = "message bot";
+      chartMsg.innerHTML = `
+        <div class="bubble chart-container">
+          <img src="data:image/png;base64,${chartData}" alt="Price Chart" style="width: 100%; max-width: 600px; height: auto; border-radius: 10px;">
+        </div>
+      `;
+      chatBox.appendChild(chartMsg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
@@ -79,7 +128,7 @@
       const typing = document.createElement("div");
       typing.id = id;
       typing.className = "message bot";
-      typing.innerHTML = `<div class="bubble">Analyzing your request...</div>`;
+      typing.innerHTML = `<div class="bubble typing-indicator">🤔 Analyzing your request...</div>`;
       chatBox.appendChild(typing);
       chatBox.scrollTop = chatBox.scrollHeight;
       return id;
@@ -95,9 +144,71 @@
       document.getElementById("userInput").focus();
     }
 
+    function clearHistory() {
+      if (confirm("Are you sure you want to clear the conversation history?")) {
+        fetch("/clear_history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId })
+        })
+        .then(() => {
+          // Clear chat display
+          const chatBox = document.getElementById("chatBox");
+          chatBox.innerHTML = `
+            <div class="message bot">
+              <div class="bubble">🔄 Conversation cleared! I'm ready to help you with financial queries.</div>
+            </div>
+          `;
+        })
+        .catch(error => {
+          console.error('Error clearing history:', error);
+        });
+      }
+    }
+
+    // Enhanced keyboard handling
     document.getElementById("userInput").addEventListener("keypress", e => {
-      if (e.key === "Enter") sendMessage();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
     });
+
+    // Auto-focus input on page load
+    document.addEventListener("DOMContentLoaded", function() {
+      document.getElementById("userInput").focus();
+    });
+
+    // Add typing animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+      .typing-indicator {
+        position: relative;
+      }
+
+      .typing-indicator::after {
+        content: '';
+        animation: typing 1.5s infinite;
+      }
+
+      @keyframes typing {
+        0%, 60%, 100% { opacity: 1; }
+        30% { opacity: 0.5; }
+      }
+
+      .chart-container {
+        padding: 0.5rem !important;
+        background: rgba(255, 255, 255, 0.95) !important;
+        color: #333 !important;
+        max-width: 90% !important;
+      }
+
+      .chart-container img {
+        display: block;
+        margin: 0 auto;
+      }
+    `;
+    document.head.appendChild(style);
   </script>
 </body>
 </html>

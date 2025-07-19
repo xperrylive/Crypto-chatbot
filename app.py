@@ -4,6 +4,12 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
+import pandas as pd
+import io
+import base64
 
 app = Flask(__name__)
 
@@ -29,36 +35,31 @@ def analyze_user_input(user_input):
     user_prompt = f"""
 Your task is to classify a user's financial question and extract:
 
-- intent: one of ["crypto_price", "stock_price", "define", "unknown"]
+- intent: one of ["crypto_price", "stock_price", "chart", "define", "unknown"]
 - symbol: the trading symbol or keyword (e.g. BTC, ETH, AAPL, inflation)
 - raw_entity: the original asset or term (e.g. bitcoin, Apple)
+- time_period: for charts only, one of ["1d", "7d", "30d", "90d", "1y"] or null
+- asset_type: for charts only, either "crypto" or "stock"
 
 Instructions:
-- If the user asks for ANY crypto-related info (price, market cap, ATH, ATL, volume, etc.), use intent: "crypto_price" and convert the name to its *standard crypto symbol* (e.g. "bitcoin" → "BTC").
-- If the user asks for ANY stock-related info (price, market cap, volume, etc.), use intent: "stock_price" and convert the company name to its *stock ticker* (e.g. "Apple" → "AAPL").
-- If the user asks for a definition or explanation OR asks about general financial topics like trading, investing, strategies, etc., use intent: "define" and keep the keyword as-is.
-- If it's not finance-related, return intent: "unknown" and both symbol/raw_entity: null
+- If user asks for ANY crypto-related info (price, market cap, ATH, etc.), use intent: "crypto_price"
+- If user asks for ANY stock-related info (price, market cap, volume, etc.), use intent: "stock_price"  
+- If user asks for CHARTS/GRAPHS/VISUALIZATION of crypto/stock prices, use intent: "chart" and extract:
+  * time_period: ONLY one of ["1d", "7d", "30d", "90d", "1y"] (default to "30d" if not specified)
+  * asset_type: "crypto" for cryptocurrencies (bitcoin, ethereum, etc.) or "stock" for companies (Apple, Tesla, etc.)
+- If user asks for definitions or general financial topics, use intent: "define"
+- If not finance-related, return intent: "unknown"
 
-Examples:
-- "what's the price of bitcoin?" → crypto_price, BTC, bitcoin
-- "bitcoin ATH" → crypto_price, BTC, bitcoin
-- "ethereum market cap" → crypto_price, ETH, ethereum
-- "SOL volume" → crypto_price, SOL, solana
-- "apple stock price?" → stock_price, AAPL, Apple
-- "Tesla market cap" → stock_price, TSLA, Tesla
-- "AAPL volume" → stock_price, AAPL, Apple
-- "define inflation" → define, inflation, inflation
-- "how can i start trading" → define, trading, trading
-- "what are investment strategies" → define, investment, investment
-- "yes" → define, general, general
-- "tell me more" → define, general, general
-- "how tall is Mount Everest?" → unknown, null, null
+Chart Examples:
+- "show me bitcoin chart" → chart, BTC, bitcoin, "30d", "crypto"
+- "AAPL 1 year chart" → chart, AAPL, Apple, "1y", "stock"
+- "ethereum price chart last week" → chart, ETH, ethereum, "7d", "crypto"
+- "chart tesla stock 3 months" → chart, TSLA, Tesla, "90d", "stock"
 
 Respond ONLY with JSON like:
-{{"intent": "crypto_price", "symbol": "BTC", "raw_entity": "bitcoin"}}
+{{"intent": "chart", "symbol": "BTC", "raw_entity": "bitcoin", "time_period": "30d", "asset_type": "crypto"}}
 
-Now classify:
-"{user_input}"
+Now classify: "{user_input}"
 """
 
     payload = {
@@ -74,17 +75,10 @@ Now classify:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
         message = response.json()["choices"][0]["message"]["content"]
-
-        # Parse the strict JSON response
         return json.loads(message)
-
     except Exception as e:
         print("Error from Groq:", e)
-        return {
-            "intent": "unknown",
-            "symbol": None,
-            "raw_entity": None
-        }
+        return {"intent": "unknown", "symbol": None, "raw_entity": None, "time_period": None, "asset_type": None}
 
 
 # Function 1: Get crypto price and info using CoinGecko
@@ -276,7 +270,7 @@ def is_follow_up_query(user_input, session_id):
     return False
 
 
-# Function 3: FIXED Answer financial queries with proper conversation context
+# FIXED: Answer financial queries with proper token limits for complete responses
 def answer_financial_query(user_input, intent, symbol=None, session_id="default"):
     try:
         # Handle common greetings with short responses
@@ -324,26 +318,28 @@ Be warm but focused on finance."""
 
             # Add current user message
             messages.append({"role": "user", "content": user_input})
+
+            # Use lower token limit for redirects
+            max_tokens = 100
         else:
             # For financial topics, use full conversation context
-            system_msg = """You are a knowledgeable financial assistant. You provide helpful, detailed information about finance, investing, cryptocurrencies, stocks, and economic concepts. 
+            system_msg = """You are a knowledgeable financial assistant. You provide helpful, concise information about finance, investing, cryptocurrencies, stocks, and economic concepts. 
 
 IMPORTANT: You have access to conversation history and should remember personal details shared by users (like names, preferences, previous questions). Always use this information to provide personalized responses.
 
-RESPONSE STYLE:
-- Keep answers SHORT, CLEAR, and SIMPLE
-- Maximum 3-4 sentences per response
-- Use bullet points only when absolutely necessary
-- Be direct and concise
-- If the topic is complex, give a brief overview and ask if they want more details
+RESPONSE REQUIREMENTS:
+- Keep responses SHORT and COMPLETE (2-3 sentences maximum)
+- Be direct and to the point
+- Cover only the most essential points
+- End with a complete thought, not mid-sentence
+- No lengthy explanations unless specifically requested
 
-When users ask about trading, investing, or financial strategies, provide:
-- Key points only (not step-by-step unless requested)
-- Essential information
-- Brief practical advice
-- Ask if they need more details
+For investment tips, strategies, or comparisons:
+- Give key points only, be concise
+- Focus on the most important advice
+- Keep comparisons brief but complete
 
-Be conversational and helpful. Use the conversation history to provide contextual responses."""
+Be conversational and helpful. Use conversation history for context."""
 
             # Build messages with conversation history
             messages = [{"role": "system", "content": system_msg}]
@@ -360,21 +356,190 @@ Be conversational and helpful. Use the conversation history to provide contextua
             # Add current user message
             messages.append({"role": "user", "content": user_input})
 
+            # Use lower token limit for short, complete answers
+            max_tokens = 120
+
         payload = {
             "model": "llama3-8b-8192",
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 150  # Reduced from 400 to force shorter responses
+            "max_tokens": max_tokens,
+            "stop": None  # Remove any stop sequences that might cut off responses
         }
 
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
 
-        message = response.json()["choices"][0]["message"]["content"]
+        message = response.json()["choices"][0]["message"]["content"].strip()
+
+        # Check if response seems incomplete (ends abruptly without proper punctuation)
+        if len(message) > 50 and not message.endswith(('.', '!', '?', '"', "'")):
+            # Try to get a more complete response with slightly higher token limit
+            payload["max_tokens"] = 150
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            message = response.json()["choices"][0]["message"]["content"].strip()
+
         return {'success': True, 'response': message}
 
     except Exception as e:
         return {'success': False, 'error': f'Error generating response: {str(e)}'}
+
+
+def create_price_chart(symbol, time_period, asset_type):
+    try:
+        # Calculate date range
+        days_map = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}
+        days = days_map.get(time_period, 30)
+
+        if asset_type == "crypto":
+            # Get crypto historical data from CoinGecko
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # Try direct symbol first, then search
+            url = f"https://api.coingecko.com/api/v3/coins/{symbol.lower()}/market_chart"
+            params = {
+                'vs_currency': 'usd',
+                'days': days,
+                'interval': 'daily' if days > 1 else 'hourly'
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+
+            if response.status_code != 200:
+                # Search for coin ID
+                search_url = f"https://api.coingecko.com/api/v3/search?query={symbol}"
+                search_response = requests.get(search_url, timeout=10)
+                if search_response.status_code == 200:
+                    search_data = search_response.json()
+                    if search_data['coins']:
+                        coin_id = search_data['coins'][0]['id']
+                        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+                        response = requests.get(url, params=params, timeout=10)
+                    else:
+                        return {'success': False, 'error': 'Cryptocurrency not found'}
+                else:
+                    return {'success': False, 'error': 'Cryptocurrency not found'}
+
+            if response.status_code == 200:
+                data = response.json()
+                prices = data['prices']
+
+                # Convert to DataFrame
+                df = pd.DataFrame(prices, columns=['timestamp', 'price'])
+                df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+                # Create chart
+                plt.figure(figsize=(12, 6))
+                plt.plot(df['date'], df['price'], linewidth=2, color='#f7931a')
+                plt.title(f'{symbol.upper()} Price Chart ({time_period})', fontsize=16, fontweight='bold')
+                plt.xlabel('Date')
+                plt.ylabel('Price (USD)')
+                plt.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+
+                # Format y-axis
+                if df['price'].max() > 1000:
+                    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+                else:
+                    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:.2f}'))
+
+                plt.tight_layout()
+
+                # Save to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+                img_buffer.seek(0)
+                chart_b64 = base64.b64encode(img_buffer.read()).decode()
+                plt.close()
+
+                return {
+                    'success': True,
+                    'chart_data': chart_b64,
+                    'current_price': df['price'].iloc[-1],
+                    'price_change': ((df['price'].iloc[-1] - df['price'].iloc[0]) / df['price'].iloc[0] * 100),
+                    'symbol': symbol.upper()
+                }
+
+        elif asset_type == "stock":
+            # Get stock historical data from Alpha Vantage
+            alpha_vantage_key = os.getenv("alpha_vantage_key")
+            if not alpha_vantage_key:
+                return {'success': False, 'error': 'Alpha Vantage API key required for stock charts'}
+
+            # Use TIME_SERIES_DAILY for historical data
+            url = f"https://www.alphavantage.co/query"
+            params = {
+                'function': 'TIME_SERIES_DAILY',
+                'symbol': symbol,
+                'apikey': alpha_vantage_key,
+                'outputsize': 'full'
+            }
+
+            response = requests.get(url, params=params, timeout=15)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                if 'Error Message' in data:
+                    return {'success': False, 'error': 'Stock symbol not found'}
+
+                if 'Note' in data:
+                    return {'success': False, 'error': 'API rate limit exceeded'}
+
+                time_series = data.get('Time Series (Daily)', {})
+                if not time_series:
+                    return {'success': False, 'error': 'No stock data available'}
+
+                # Convert to DataFrame and filter by date range
+                df_data = []
+                cutoff_date = datetime.now() - timedelta(days=days)
+
+                for date_str, values in time_series.items():
+                    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    if date_obj >= cutoff_date:
+                        df_data.append({
+                            'date': date_obj,
+                            'price': float(values['4. close'])
+                        })
+
+                df = pd.DataFrame(df_data).sort_values('date')
+
+                if df.empty:
+                    return {'success': False, 'error': 'No recent stock data available'}
+
+                # Create chart
+                plt.figure(figsize=(12, 6))
+                plt.plot(df['date'], df['price'], linewidth=2, color='#1f77b4')
+                plt.title(f'{symbol.upper()} Stock Price Chart ({time_period})', fontsize=16, fontweight='bold')
+                plt.xlabel('Date')
+                plt.ylabel('Price (USD)')
+                plt.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+                plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:.2f}'))
+                plt.tight_layout()
+
+                # Save to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+                img_buffer.seek(0)
+                chart_b64 = base64.b64encode(img_buffer.read()).decode()
+                plt.close()
+
+                return {
+                    'success': True,
+                    'chart_data': chart_b64,
+                    'current_price': df['price'].iloc[-1],
+                    'price_change': ((df['price'].iloc[-1] - df['price'].iloc[0]) / df['price'].iloc[0] * 100),
+                    'symbol': symbol.upper()
+                }
+
+        return {'success': False, 'error': 'Invalid asset type'}
+
+    except Exception as e:
+        return {'success': False, 'error': f'Error creating chart: {str(e)}'}
+
 
 
 @app.route('/')
@@ -397,6 +562,8 @@ def chat():
         intent = analysis.get('intent')
         symbol = analysis.get('symbol')
         raw_entity = analysis.get('raw_entity')
+        time_period = analysis.get('time_period')
+        asset_type = analysis.get('asset_type')
 
         print(f"DEBUG: User input: '{user_input}'")
         print(f"DEBUG: Analysis result: {analysis}")
@@ -473,6 +640,51 @@ Last Updated: {stock_data['last_updated']}"""
                     return jsonify({'response': error_response})
             else:
                 error_response = '❌ Could not identify stock symbol'
+                add_to_conversation(session_id, user_input, error_response, intent)
+                return jsonify({'response': error_response})
+
+        elif intent == "chart":
+            if symbol:
+                time_period = analysis.get('time_period', '30d')
+                asset_type = analysis.get('asset_type')
+
+                # Validate time period
+                valid_periods = ["1d", "7d", "30d", "90d", "1y"]
+                if time_period not in valid_periods:
+                    error_response = f"❌ Invalid time period. I can only generate charts for: {', '.join(valid_periods)}"
+                    add_to_conversation(session_id, user_input, error_response, intent)
+                    return jsonify({'response': error_response})
+
+                if not asset_type:
+                    error_response = "❌ Could not determine if this is a crypto or stock asset"
+                    add_to_conversation(session_id, user_input, error_response, intent)
+                    return jsonify({'response': error_response})
+
+                chart_result = create_price_chart(symbol, time_period, asset_type)
+
+                if chart_result['success']:
+                    change_emoji = "📈" if chart_result['price_change'] >= 0 else "📉"
+                    response = f"""📊 *{chart_result['symbol']} Price Chart ({time_period})*
+
+💰 *Current Price*: ${chart_result['current_price']:.2f}
+{change_emoji} *Period Change*: {chart_result['price_change']:+.2f}%
+
+📈 *Chart generated successfully!*"""
+
+                    # Add to conversation history
+                    add_to_conversation(session_id, user_input, response.strip(), intent,
+                                        f"chart for {chart_result['symbol']}")
+
+                    return jsonify({
+                        'response': response.strip(),
+                        'chart': chart_result['chart_data']
+                    })
+                else:
+                    error_response = f"❌ {chart_result['error']}"
+                    add_to_conversation(session_id, user_input, error_response, intent)
+                    return jsonify({'response': error_response})
+            else:
+                error_response = '❌ Could not identify asset symbol for chart'
                 add_to_conversation(session_id, user_input, error_response, intent)
                 return jsonify({'response': error_response})
 
