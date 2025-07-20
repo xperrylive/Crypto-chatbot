@@ -28,6 +28,7 @@
 
   <div class="chat-footer">
     <div class="input-container">
+      <button id="clearButton" onclick="clearHistory()" title="Clear conversation history">🗑️</button>
       <input type="text" id="userInput" placeholder="Ask about crypto, stocks, charts, or financial advice..." />
       <button id="sendButton" onclick="sendMessage()">Send</button>
     </div>
@@ -151,17 +152,23 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId })
         })
-        .then(() => {
-          // Clear chat display
-          const chatBox = document.getElementById("chatBox");
-          chatBox.innerHTML = `
-            <div class="message bot">
-              <div class="bubble">🔄 Conversation cleared! I'm ready to help you with financial queries.</div>
-            </div>
-          `;
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            // Clear chat display
+            const chatBox = document.getElementById("chatBox");
+            chatBox.innerHTML = `
+              <div class="message bot">
+                <div class="bubble">🔄 Conversation cleared! I'm ready to help you with financial queries.</div>
+              </div>
+            `;
+          } else {
+            addMessage("bot", "❌ Failed to clear conversation history.");
+          }
         })
         .catch(error => {
           console.error('Error clearing history:', error);
+          addMessage("bot", "⚠️ Error clearing conversation history. Please try again.");
         });
       }
     }

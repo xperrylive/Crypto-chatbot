@@ -177,6 +177,40 @@ body::before {
   gap: 1rem;
   max-width: 1200px;
   margin: 0 auto;
+  align-items: center;
+}
+
+#clearButton {
+  padding: 1.2rem;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(220, 38, 38, 0.15) 100%);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  color: white;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 25px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Poppins', sans-serif;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  min-width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#clearButton:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(220, 38, 38, 0.25) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(239, 68, 68, 0.2);
+}
+
+#clearButton:active {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.15);
 }
 
 #userInput {
@@ -366,12 +400,17 @@ body::before {
   }
 
   .input-container {
-    flex-direction: column;
     gap: 0.8rem;
   }
 
+  #clearButton {
+    min-width: 48px;
+    height: 48px;
+    padding: 1rem;
+    font-size: 1.1rem;
+  }
+
   #sendButton {
-    align-self: stretch;
     padding: 1rem 1.5rem;
   }
 
@@ -406,6 +445,32 @@ body::before {
     max-width: 92%;
     font-size: 0.9rem;
     padding: 0.9rem 1.2rem;
+  }
+
+  .input-container {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  #clearButton {
+    order: 1;
+    min-width: 44px;
+    height: 44px;
+    padding: 0.8rem;
+    font-size: 1rem;
+  }
+
+  #userInput {
+    order: 2;
+    flex: 1;
+    min-width: 0;
+    margin-right: 0.5rem;
+  }
+
+  #sendButton {
+    order: 3;
+    padding: 0.8rem 1.3rem;
+    font-size: 0.9rem;
   }
 
   .suggestion-buttons {
