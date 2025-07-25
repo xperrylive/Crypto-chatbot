@@ -463,14 +463,8 @@ def answer_financial_query(user_input, intent, symbol=None, session_id="default"
 
         # Decide how concise we need to be
         short_intents = {"define", "unknown"}  # we also catch general finance questions here
-        max_tokens = 200 if intent in short_intents else 500
 
-        system_msg = (
-            "You are a concise financial assistant. "
-            "Answer in 2–3 short paragraphs, max 150 words. "
-            "Keep the tone friendly and actionable. "
-            "Only talk about finance, investing, crypto, or stocks."
-        )
+        system_msg, max_tokens = get_personality(session_id)
 
         payload = {
             "model": "llama3-8b-8192",
@@ -486,6 +480,13 @@ def answer_financial_query(user_input, intent, symbol=None, session_id="default"
         r = requests.post(url, headers=headers, json=payload, timeout=15)
         r.raise_for_status()
         answer = r.json()["choices"][0]["message"]["content"].strip()
+        # If it looks truncated, re-request with bigger budget
+        if intent in {"define", "unknown"} and len(answer) > 100 and not answer.endswith(
+                ('.', '!', '?', '"', "'", ')', ']', '}')):
+            payload["max_tokens"] = 900
+            r2 = requests.post(url, headers=headers, json=payload, timeout=15)
+            r2.raise_for_status()
+            answer = r2.json()["choices"][0]["message"]["content"].strip()
         return {'success': True, 'response': answer}
 
     except Exception as e:
@@ -647,6 +648,50 @@ def create_price_chart(symbol, time_period, asset_type):
         return {'success': False, 'error': f'Error creating chart: {str(e)}'}
 
 
+
+# --------------------------------------------------
+# PERSONALITY MODE  helpers
+# --------------------------------------------------
+DEFAULT_MODE = "concise"
+VALID_MODES  = {"concise", "teacher", "analyst"}
+
+def get_personality(session_id):
+    """Return (system_prompt, max_tokens) for current mode."""
+    history = get_conversation_history(session_id)
+    mode = history.get("personality", DEFAULT_MODE)
+    prompts = {
+        "concise": (
+            "You are a concise financial assistant. "
+            "Answer in one short paragraph, max 80 words.",
+            120
+        ),
+        "teacher": (
+            "You are a friendly teacher. Explain like the user is 12, "
+            "use analogies and examples, max 250 words.",
+            400
+        ),
+        "analyst": (
+            "You are a data-driven analyst. "
+            "Give a deep dive, pros/cons, and actionable takeaways.",
+            800
+        )
+    }
+    return prompts[mode]
+
+def handle_mode_command(user_input, session_id):
+    """Return (is_mode_change, reply)"""
+    if not user_input.lower().startswith("mode "):
+        return False, None
+    mode = user_input.split()[1].lower()
+    if mode in VALID_MODES:
+        get_conversation_history(session_id)["personality"] = mode
+        return True, f"✅ Switched to **{mode}** mode."
+    else:
+        return True, f"❌ Unknown mode. Try: {', '.join(VALID_MODES)}"
+
+
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -678,6 +723,12 @@ def chat():
         # Check if this is a follow-up query or personal question
         is_follow_up = is_follow_up_query(user_input, session_id)
         print(f"DEBUG: Is follow-up: {is_follow_up}")
+
+        # ----- 1. Handle mode command -----
+        is_cmd, reply = handle_mode_command(user_input, session_id)
+        if is_cmd:
+            add_to_conversation(session_id, user_input, reply, intent="mode")
+            return jsonify({'response': reply})
 
         # ------------------------------------------------------------------
         # NEW unified compare path

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FinanceBot</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -12,6 +12,14 @@
     <h1>💰 FinanceBot</h1>
     <p>Your intelligent financial assistant for crypto, stocks, charts, and market insights</p>
   </header>
+
+  <!-- Personality switcher -->
+  <nav class="personality-bar">
+    <span class="personality-label">Personality:</span>
+    <button class="mode-btn" id="btn-concise">Concise</button>
+    <button class="mode-btn" id="btn-teacher">Teacher</button>
+    <button class="mode-btn" id="btn-analyst">Analyst</button>
+  </nav>
 
   <div class="chat-body" id="chatBox">
     <div class="message bot">
@@ -49,11 +57,11 @@
     </div>
   </div>
 
-  <!-- FIXED: Chart Zoom Modal -->
+  <!-- Chart Zoom Modal -->
   <div id="chartModal" class="chart-modal" onclick="closeChartModal()">
     <div class="chart-modal-content" onclick="event.stopPropagation()">
       <span class="chart-close" onclick="closeChartModal()">&times;</span>
-      <img id="modalChartImage" src="" alt="Price Chart" />
+      <img id="modalChartImage" src="" alt="Price Chart"/>
       <div class="chart-controls">
         <button onclick="closeChartModal()" class="chart-btn">Close</button>
       </div>
@@ -63,6 +71,7 @@
   <script>
     // Generate unique session ID for conversation memory
     const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    window.session_id = sessionId;   // expose globally for personality switcher
 
     function sendMessage() {
       const input = document.getElementById("userInput");
@@ -85,14 +94,9 @@
       .then(res => res.json())
       .then(data => {
         removeTyping(typingId);
-
         if (data.response) {
           addMessage("bot", data.response);
-
-          // Handle chart display if present
-          if (data.chart) {
-            addChart(data.chart);
-          }
+          if (data.chart) addChart(data.chart);
         } else if (data.error) {
           addMessage("bot", "❌ " + data.error);
         } else {
@@ -106,75 +110,76 @@
       });
     }
 
+    /* ---  personality switcher  --- */
+    const modes = ['concise', 'teacher', 'analyst'];
+    let currentMode = 'concise';           // default
+
+    function updateButtons() {
+      modes.forEach(m => {
+        const btn = document.getElementById('btn-' + m);
+        btn.classList.toggle('active', m === currentMode);
+      });
+    }
+
+    async function switchMode(mode) {
+      if (mode === currentMode) return;
+      currentMode = mode;
+      updateButtons();
+
+      await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'mode ' + mode,
+          session_id: window.session_id
+        })
+      });
+    }
+
+    modes.forEach(m => {
+      document.getElementById('btn-' + m).addEventListener('click', () => switchMode(m));
+    });
+    updateButtons();     // initial highlight
+
+
     function addMessage(sender, text) {
       const chatBox = document.getElementById("chatBox");
       const msg = document.createElement("div");
       msg.className = `message ${sender}`;
-
-      // Format text with proper line breaks and styling
       const formattedText = text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // Bold text
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')              // Italic text
-        .replace(/\n/g, "<br>");                            // Line breaks
-
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, "<br>");
       msg.innerHTML = `<div class="bubble">${formattedText}</div>`;
       chatBox.appendChild(msg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // FIXED: Enhanced chart function with zoom capability
     function addChart(chartData) {
       const chatBox = document.getElementById("chatBox");
       const chartMsg = document.createElement("div");
       chartMsg.className = "message bot";
-
-      // Create unique ID for this chart
       const chartId = 'chart_' + Date.now();
-
       chartMsg.innerHTML = `
         <div class="bubble chart-container">
-          <img id="${chartId}"
-               src="data:image/png;base64,${chartData}"
-               alt="Price Chart"
-               style="width: 100%; max-width: 600px; height: auto; border-radius: 10px; cursor: zoom-in;"
-               onclick="openChartModal('${chartId}')"
-               title="Click to zoom">
-          <div class="chart-zoom-hint">
-            🔍 Click chart to zoom
-          </div>
-        </div>
-      `;
+          <img id="${chartId}" src="data:image/png;base64,${chartData}" alt="Price Chart"
+               onclick="openChartModal('${chartId}')" style="cursor:zoom-in" />
+          <div class="chart-zoom-hint">🔍 Click chart to zoom</div>
+        </div>`;
       chatBox.appendChild(chartMsg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // FIXED: Chart zoom functionality
     function openChartModal(chartId) {
-      const originalImg = document.getElementById(chartId);
-      const modal = document.getElementById('chartModal');
-      const modalImg = document.getElementById('modalChartImage');
-
-      modal.style.display = 'block';
-      modalImg.src = originalImg.src;
-
-      // Prevent body scroll when modal is open
+      document.getElementById('modalChartImage').src = document.getElementById(chartId).src;
+      document.getElementById('chartModal').style.display = 'block';
       document.body.style.overflow = 'hidden';
     }
 
     function closeChartModal() {
-      const modal = document.getElementById('chartModal');
-      modal.style.display = 'none';
-
-      // Restore body scroll
+      document.getElementById('chartModal').style.display = 'none';
       document.body.style.overflow = 'auto';
     }
-
-    // Close modal with Escape key
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') {
-        closeChartModal();
-      }
-    });
 
     function addTyping() {
       const id = "typing-" + Date.now();
@@ -208,13 +213,11 @@
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            // Clear chat display
             const chatBox = document.getElementById("chatBox");
             chatBox.innerHTML = `
               <div class="message bot">
                 <div class="bubble">🔄 Conversation cleared! I'm ready to help you with financial queries.</div>
-              </div>
-            `;
+              </div>`;
           } else {
             addMessage("bot", "❌ Failed to clear conversation history.");
           }
@@ -226,7 +229,6 @@
       }
     }
 
-    // Enhanced keyboard handling
     document.getElementById("userInput").addEventListener("keypress", e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -234,158 +236,7 @@
       }
     });
 
-    // Auto-focus input on page load
-    document.addEventListener("DOMContentLoaded", function() {
-      document.getElementById("userInput").focus();
-    });
-
-    // Add typing animation styles
-    const style = document.createElement('style');
-    style.textContent = `
-      .typing-indicator {
-        position: relative;
-      }
-
-      .typing-indicator::after {
-        content: '';
-        animation: typing 1.5s infinite;
-      }
-
-      @keyframes typing {
-        0%, 60%, 100% { opacity: 1; }
-        30% { opacity: 0.5; }
-      }
-
-      .chart-container {
-        padding: 0.5rem !important;
-        background: rgba(255, 255, 255, 0.95) !important;
-        color: #333 !important;
-        max-width: 90% !important;
-        position: relative;
-      }
-
-      .chart-container img {
-        display: block;
-        margin: 0 auto;
-        transition: transform 0.2s ease;
-      }
-
-      .chart-container img:hover {
-        transform: scale(1.02);
-      }
-
-      .chart-zoom-hint {
-        text-align: center;
-        font-size: 0.8rem;
-        color: #666;
-        margin-top: 0.5rem;
-        font-style: italic;
-      }
-
-      /* FIXED: Chart Modal Styles */
-      .chart-modal {
-        display: none;
-        position: fixed;
-        z-index: 9999;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background-color: rgba(0, 0, 0, 0.9);
-        animation: fadeIn 0.3s ease;
-      }
-
-      @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-
-      .chart-modal-content {
-        position: relative;
-        background-color: #fff;
-        margin: 2% auto;
-        padding: 20px;
-        border-radius: 15px;
-        width: 95%;
-        max-width: 1200px;
-        max-height: 90vh;
-        overflow: auto;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        animation: slideIn 0.3s ease;
-      }
-
-      @keyframes slideIn {
-        from {
-          transform: translateY(-50px);
-          opacity: 0;
-        }
-        to {
-          transform: translateY(0);
-          opacity: 1;
-        }
-      }
-
-      .chart-close {
-        color: #666;
-        float: right;
-        font-size: 32px;
-        font-weight: bold;
-        cursor: pointer;
-        line-height: 1;
-        transition: color 0.2s ease;
-      }
-
-      .chart-close:hover,
-      .chart-close:focus {
-        color: #000;
-      }
-
-      #modalChartImage {
-        width: 100%;
-        height: auto;
-        border-radius: 10px;
-        margin: 20px 0;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-      }
-
-      .chart-controls {
-        text-align: center;
-        margin-top: 20px;
-      }
-
-      .chart-btn {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        border-radius: 25px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-      }
-
-      .chart-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-      }
-
-      /* Mobile responsiveness for modal */
-      @media (max-width: 768px) {
-        .chart-modal-content {
-          width: 98%;
-          margin: 1% auto;
-          padding: 15px;
-        }
-
-        .chart-close {
-          font-size: 28px;
-        }
-      }
-    `;
-    document.head.appendChild(style);
+    document.addEventListener("DOMContentLoaded", () => document.getElementById("userInput").focus());
   </script>
 </body>
 </html>

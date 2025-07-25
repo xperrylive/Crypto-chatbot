@@ -820,3 +820,40 @@ body::before {
     color: #fff;
   }
 }
+
+.personality-bar {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.personality-label {
+  color: #fff;
+  margin-right: 0.5rem;
+  font-weight: 500;
+  align-self: center;
+}
+
+.mode-btn {
+  padding: 0.3rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.mode-btn.active {
+  background: rgba(255, 255, 255, 0.4);
+  cursor: not-allowed;
+  color: #ddd;
+}
