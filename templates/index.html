@@ -38,6 +38,7 @@
   <div class="chat-footer">
     <div class="input-container">
       <button id="clearButton" onclick="clearHistory()" title="Clear conversation history">🗑️</button>
+      <button id="factButton" title="Random finance fact" onclick="sendFact()">🎲</button>
       <input type="text" id="userInput" placeholder="Ask about crypto, stocks, charts, or financial advice..." />
       <button id="sendButton" onclick="sendMessage()">Send</button>
     </div>
@@ -237,6 +238,11 @@
     });
 
     document.addEventListener("DOMContentLoaded", () => document.getElementById("userInput").focus());
+
+    function sendFact() {
+  document.getElementById("userInput").value = "/fact";
+  sendMessage();
+}
   </script>
 </body>
 </html>

@@ -364,14 +364,14 @@ def compare_assets_with_ai(user_input: str) -> dict:
     return {"success": True, "response": "\n\n".join(lines), "data": assets}
 
 
-# FIXED: Enhanced conversation memory management
+#Enhanced conversation memory management
 def get_conversation_history(session_id):
-    """Get the conversation history for a session"""
     if session_id not in conversation_memory:
         conversation_memory[session_id] = {
             'messages': [],
             'last_topic': None,
-            'last_intent': None
+            'last_intent': None,
+            'last_fact': None
         }
     return conversation_memory[session_id]
 
@@ -690,6 +690,40 @@ def handle_mode_command(user_input, session_id):
         return True, f"❌ Unknown mode. Try: {', '.join(VALID_MODES)}"
 
 
+def get_random_finance_fact():
+    """Ask Groq for a fresh finance trivia fact (≤20 words)."""
+    llm_key = os.getenv('llm_api_key')
+    if not llm_key:
+        return "Finance trivia service unavailable (missing GROQ_API_KEY)."
+
+    payload = {
+        "model": "llama3-8b-8192",
+        "temperature": 0.9,
+        "max_tokens": 30,
+        "messages": [
+            {
+                "role": "system",
+                "content": "Return one interesting finance or investing trivia fact in ≤20 words. No explanation."
+            },
+            {
+                "role": "user",
+                "content": "Give me a random finance fact."
+            }
+        ]
+    }
+
+    try:
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {llm_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=6
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        return f"Oops, trivia engine is napping: {e}"
+
 
 
 @app.route('/')
@@ -706,6 +740,59 @@ def chat():
 
         if not user_input:
             return jsonify({'error': 'Please enter a message'})
+
+        # ---------- RANDOM FACT ----------
+        if user_input.strip().lower() in {"/fact", "fact"}:
+            fact = get_random_finance_fact()
+            history = get_conversation_history(session_id)
+            history['last_fact'] = fact          # remember here
+            add_to_conversation(session_id, user_input, fact, intent="fact")
+            return jsonify({"response": f"🎲 **Finance Fact**\n\n{fact}\n\n*Ask “explain” for details.*"})
+
+        # ---------- EXPLAIN LAST FACT ----------
+        if user_input.strip().lower() in {"explain", "explain that", "tell me more"}:
+            history = get_conversation_history(session_id)
+            last_fact = history.get('last_fact')
+            if not last_fact:
+                err = "No recent fact to explain."
+                add_to_conversation(session_id, user_input, err, intent="explain")
+                return jsonify({'response': f"❌ {err}"})
+
+            llm_key = os.getenv('llm_api_key')
+            if not llm_key:
+                err = "Missing GROQ_API_KEY"
+                add_to_conversation(session_id, user_input, err, intent="explain")
+                return jsonify({'response': f"❌ {err}"})
+
+            prompt = (
+                f"The user just saw this finance trivia:\n{last_fact}\n\n"
+                "Explain it in a friendly, concise way (≤120 words)."
+            )
+            payload = {
+                "model": "llama3-8b-8192",
+                "messages": [
+                    {"role": "system", "content": "You are a concise financial tutor."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.6,
+                "max_tokens": 150
+            }
+
+            try:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {llm_key}", "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=8
+                )
+                r.raise_for_status()
+                explanation = r.json()["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                explanation = f"Could not elaborate right now: {e}"
+
+            add_to_conversation(session_id, user_input, explanation, intent="explain")
+            return jsonify({'response': explanation})
+
 
         # Analyze user input using existing function
         analysis = analyze_user_input(user_input)
@@ -729,6 +816,12 @@ def chat():
         if is_cmd:
             add_to_conversation(session_id, user_input, reply, intent="mode")
             return jsonify({'response': reply})
+
+        # ---------- RANDOM FACT ----------
+        if user_input.strip().lower() in {"/fact", "fact"}:
+            fact = get_random_finance_fact()
+            add_to_conversation(session_id, user_input, fact, intent="fact")
+            return jsonify({"response": f"🎲 **Finance Fact**\n\n{fact}"})
 
         # ------------------------------------------------------------------
         # NEW unified compare path
