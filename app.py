@@ -18,7 +18,7 @@ conversation_memory = {}
 load_dotenv()
 
 
-# Your existing function - unchanged
+# FIXED: Enhanced function with better intent classification for comparisons
 def analyze_user_input(user_input):
     llm_api_key = os.getenv('llm_api_key')
     if not llm_api_key:
@@ -35,11 +35,12 @@ def analyze_user_input(user_input):
     user_prompt = f"""
 Your task is to classify a user's financial question and extract:
 
-- intent: one of ["crypto_price", "stock_price", "chart", "define", "unknown"]
+- intent: one of ["crypto_price", "stock_price", "chart", "define", "compare", "unknown"]
 - symbol: the trading symbol or keyword (e.g. BTC, ETH, AAPL, inflation)
 - raw_entity: the original asset or term (e.g. bitcoin, Apple)
 - time_period: for charts only, one of ["1d", "7d", "30d", "90d", "1y"] or null
 - asset_type: for charts only, either "crypto" or "stock"
+- symbols: for comparisons, array of symbols (e.g. ["BTC", "ETH"])
 
 Instructions:
 - If user asks for ANY crypto-related info (price, market cap, ATH, etc.), use intent: "crypto_price"
@@ -47,17 +48,23 @@ Instructions:
 - If user asks for CHARTS/GRAPHS/VISUALIZATION of crypto/stock prices, use intent: "chart" and extract:
   * time_period: ONLY one of ["1d", "7d", "30d", "90d", "1y"] (default to "30d" if not specified)
   * asset_type: "crypto" for cryptocurrencies (bitcoin, ethereum, etc.) or "stock" for companies (Apple, Tesla, etc.)
+- If user asks for COMPARISONS between assets (compare, vs, versus, difference between), use intent: "compare" and extract:
+  * symbols: array of all symbols mentioned (e.g. ["BTC", "ETH", "DOGE"])
 - If user asks for definitions or general financial topics, use intent: "define"
 - If not finance-related, return intent: "unknown"
+
+Comparison Examples:
+- "compare eth and btc" → compare, ["ETH", "BTC"]
+- "bitcoin vs ethereum" → compare, ["BTC", "ETH"]
+- "difference between AAPL and TSLA" → compare, ["AAPL", "TSLA"]
+- "eth vs btc vs doge" → compare, ["ETH", "BTC", "DOGE"]
 
 Chart Examples:
 - "show me bitcoin chart" → chart, BTC, bitcoin, "30d", "crypto"
 - "AAPL 1 year chart" → chart, AAPL, Apple, "1y", "stock"
-- "ethereum price chart last week" → chart, ETH, ethereum, "7d", "crypto"
-- "chart tesla stock 3 months" → chart, TSLA, Tesla, "90d", "stock"
 
 Respond ONLY with JSON like:
-{{"intent": "chart", "symbol": "BTC", "raw_entity": "bitcoin", "time_period": "30d", "asset_type": "crypto"}}
+{{"intent": "compare", "symbols": ["ETH", "BTC"], "symbol": null, "raw_entity": null, "time_period": null, "asset_type": null}}
 
 Now classify: "{user_input}"
 """
@@ -78,7 +85,8 @@ Now classify: "{user_input}"
         return json.loads(message)
     except Exception as e:
         print("Error from Groq:", e)
-        return {"intent": "unknown", "symbol": None, "raw_entity": None, "time_period": None, "asset_type": None}
+        return {"intent": "unknown", "symbol": None, "raw_entity": None, "time_period": None, "asset_type": None,
+                "symbols": None}
 
 
 # Function 1: Get crypto price and info using CoinGecko
@@ -195,6 +203,167 @@ def get_stock_info(symbol):
         return {'success': False, 'error': f'Error fetching stock data: {str(e)}'}
 
 
+# ------------------------------------------------------------------
+# 1.  NEW : one-shot compare helper
+# ------------------------------------------------------------------
+def compare_assets_with_ai(user_input: str) -> dict:
+    """
+    Unified compare flow:
+      - Groq parses symbols
+      - Live prices fetched
+      - Groq writes explanation
+    Returns: {
+        success: bool,
+        response: str,           # ready to send to UI
+        data: [ {type, symbol, name, price, change_24h, ...}, ... ]
+    }
+    """
+    llm_key = os.getenv('llm_api_key')
+    if not llm_key:
+        return {"success": False, "error": "Missing GROQ_API_KEY"}
+
+    # ----------------------------------------------------------------
+    # 1a. Ask Groq for the symbol list
+    # ----------------------------------------------------------------
+    payload_extract = {
+        "model": "llama3-8b-8192",
+        "temperature": 0.2,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a financial assistant. Return valid JSON only, no extra text.\n"
+                    'Given a user question, return: {"symbols": ["SYM1","SYM2",...]}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f'Extract trading symbols from this compare request: "{user_input}"'
+                ),
+            },
+        ],
+    }
+    try:
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {llm_key}", "Content-Type": "application/json"},
+            json=payload_extract,
+            timeout=10,
+        )
+        r.raise_for_status()
+        raw = r.json()["choices"][0]["message"]["content"].strip()
+        symbols = json.loads(raw).get("symbols", [])
+        if len(symbols) < 2:
+            return {"success": False, "error": "Could not identify two distinct assets"}
+    except Exception as e:
+        return {"success": False, "error": f"Symbol extraction failed: {e}"}
+
+    # ----------------------------------------------------------------
+    # 1b. Fetch live data for every symbol
+    # ----------------------------------------------------------------
+    assets = []
+    for sym in symbols:
+        data = get_crypto_info(sym)
+        if data["success"]:
+            assets.append(
+                {
+                    "type": "crypto",
+                    "symbol": data["symbol"],
+                    "name": data["name"],
+                    "price": data["current_price"],
+                    "change_24h": data["price_change_24h"],
+                    "market_cap": data["market_cap"],
+                    "volume": data["volume_24h"],
+                }
+            )
+            continue
+
+        data = get_stock_info(sym)
+        if data["success"]:
+            assets.append(
+                {
+                    "type": "stock",
+                    "symbol": data["symbol"],
+                    "name": data["symbol"],
+                    "price": data["current_price"],
+                    "change_24h": float(data["change_percent"]),
+                    "market_cap": None,
+                    "volume": data["volume"],
+                }
+            )
+            continue
+
+        assets.append({"type": "error", "symbol": sym, "error": f"Could not find {sym}"})
+
+    # If we have <2 valid assets, bail out early
+    valid_assets = [a for a in assets if a["type"] != "error"]
+    if len(valid_assets) < 2:
+        return {"success": False, "error": "Need at least two valid assets to compare"}
+
+    # ----------------------------------------------------------------
+    # 1c. Ask Groq for a comparison paragraph
+    # ----------------------------------------------------------------
+    asset_lines = "\n".join(
+        f"{a['name']} ({a['symbol']}): ${a['price']:,.2f} ({a['change_24h']:+.2f}% 24h)"
+        for a in valid_assets
+    )
+    prompt_explain = {
+        "model": "llama3-8b-8192",
+        "temperature": 0.6,
+        "max_tokens": 250,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a concise financial assistant. "
+                    "Write a short, easy-to-read comparison paragraph "
+                    "highlighting key differences and any actionable insight. "
+                    "Do not repeat raw numbers already shown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Compare these assets:\n{asset_lines}"
+                ),
+            },
+        ],
+    }
+    try:
+        r2 = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {llm_key}", "Content-Type": "application/json"},
+            json=prompt_explain,
+            timeout=10,
+        )
+        r2.raise_for_status()
+        explanation = r2.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        explanation = "Comparison insights unavailable at the moment."
+
+    # ----------------------------------------------------------------
+    # 1d. Build final text for the UI
+    # ----------------------------------------------------------------
+    lines = [f"📊 **Asset Comparison: {' vs '.join([a['symbol'] for a in valid_assets])}**"]
+    for a in valid_assets:
+        if a["type"] == "error":
+            lines.append(f"❌ {a['error']}")
+            continue
+        emoji = "📈" if a["change_24h"] >= 0 else "📉"
+        lines.append(
+            f"**{a['name']} ({a['symbol']})**\n"
+            f"💰 ${a['price']:,.2f}\n"
+            f"{emoji} 24h: {a['change_24h']:+.2f}%"
+            + (f"\n🏦 Cap: ${a['market_cap']:,.0f}" if a["market_cap"] else "")
+            + f"\n📊 Vol: {a['volume']:,.0f}"
+        )
+    lines.append("")  # blank line before explanation
+    lines.append(explanation)
+
+    return {"success": True, "response": "\n\n".join(lines), "data": assets}
+
+
 # FIXED: Enhanced conversation memory management
 def get_conversation_history(session_id):
     """Get the conversation history for a session"""
@@ -270,117 +439,54 @@ def is_follow_up_query(user_input, session_id):
     return False
 
 
-# FIXED: Answer financial queries with proper token limits for complete responses
+# -------------------------------
+# SHORT-FORM  answer_financial_query
+# -------------------------------
 def answer_financial_query(user_input, intent, symbol=None, session_id="default"):
     try:
-        # Handle common greetings with short responses
-        greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'howdy']
-        if any(greeting in user_input.lower() for greeting in greetings):
+        # greetings → micro response
+        greetings = ['hello', 'hi', 'hey', 'good morning',
+                     'good afternoon', 'good evening', 'howdy']
+        if any(g in user_input.lower() for g in greetings):
             return {'success': True,
-                    'response': '👋 Hello! Ask me about crypto prices, stock prices, or financial topics!'}
+                    'response': '👋 Hi! Ask me anything about crypto, stocks, or finance.'}
 
-        llm_api_key = os.getenv('llm_api_key')
+        llm_key = os.getenv('llm_api_key')
+        if not llm_key:
+            raise ValueError("Missing GROQ_API_KEY")
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {llm_api_key}",
+            "Authorization": f"Bearer {llm_key}",
             "Content-Type": "application/json"
         }
 
-        # Get conversation history
-        history = get_conversation_history(session_id)
-        is_follow_up = is_follow_up_query(user_input, session_id)
+        # Decide how concise we need to be
+        short_intents = {"define", "unknown"}  # we also catch general finance questions here
+        max_tokens = 200 if intent in short_intents else 500
 
-        if intent == "unknown":
-            # For non-financial topics, use conversation history but redirect to finance
-            system_msg = """You are a helpful financial assistant. You remember personal details from previous conversations (names, preferences, etc.) and should use them when appropriate.
-
-However, you should only discuss financial topics. For non-financial questions:
-1. If it's a personal question (like "what's my name"), acknowledge the personal info from conversation history
-2. Then politely redirect back to financial topics
-3. Keep responses brief (max 30 words) and always end with a financial question or topic
-
-Example: "Your name is [name from history]! Now, what financial goals can I help you achieve today?"
-
-Be warm but focused on finance."""
-
-            # Build messages with conversation history
-            messages = [{"role": "system", "content": system_msg}]
-
-            # Add recent conversation history for context (last 6 messages)
-            if history['messages']:
-                recent_messages = history['messages'][-6:]  # Last 3 pairs
-                for msg in recent_messages:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": msg['content']
-                    })
-
-            # Add current user message
-            messages.append({"role": "user", "content": user_input})
-
-            # Use lower token limit for redirects
-            max_tokens = 100
-        else:
-            # For financial topics, use full conversation context
-            system_msg = """You are a knowledgeable financial assistant. You provide helpful, concise information about finance, investing, cryptocurrencies, stocks, and economic concepts. 
-
-IMPORTANT: You have access to conversation history and should remember personal details shared by users (like names, preferences, previous questions). Always use this information to provide personalized responses.
-
-RESPONSE REQUIREMENTS:
-- Keep responses SHORT and COMPLETE (2-3 sentences maximum)
-- Be direct and to the point
-- Cover only the most essential points
-- End with a complete thought, not mid-sentence
-- No lengthy explanations unless specifically requested
-
-For investment tips, strategies, or comparisons:
-- Give key points only, be concise
-- Focus on the most important advice
-- Keep comparisons brief but complete
-
-Be conversational and helpful. Use conversation history for context."""
-
-            # Build messages with conversation history
-            messages = [{"role": "system", "content": system_msg}]
-
-            # Add recent conversation history for context (last 6 messages to reduce context)
-            if history['messages']:
-                recent_messages = history['messages'][-6:]  # Last 3 pairs
-                for msg in recent_messages:
-                    messages.append({
-                        "role": msg['role'],
-                        "content": msg['content']
-                    })
-
-            # Add current user message
-            messages.append({"role": "user", "content": user_input})
-
-            # Use lower token limit for short, complete answers
-            max_tokens = 120
+        system_msg = (
+            "You are a concise financial assistant. "
+            "Answer in 2–3 short paragraphs, max 150 words. "
+            "Keep the tone friendly and actionable. "
+            "Only talk about finance, investing, crypto, or stocks."
+        )
 
         payload = {
             "model": "llama3-8b-8192",
-            "messages": messages,
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_input}
+            ],
             "temperature": 0.7,
             "max_tokens": max_tokens,
-            "stop": None  # Remove any stop sequences that might cut off responses
+            "stop": None
         }
 
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-
-        message = response.json()["choices"][0]["message"]["content"].strip()
-
-        # Check if response seems incomplete (ends abruptly without proper punctuation)
-        if len(message) > 50 and not message.endswith(('.', '!', '?', '"', "'")):
-            # Try to get a more complete response with slightly higher token limit
-            payload["max_tokens"] = 150
-            response = requests.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            message = response.json()["choices"][0]["message"]["content"].strip()
-
-        return {'success': True, 'response': message}
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        r.raise_for_status()
+        answer = r.json()["choices"][0]["message"]["content"].strip()
+        return {'success': True, 'response': answer}
 
     except Exception as e:
         return {'success': False, 'error': f'Error generating response: {str(e)}'}
@@ -541,7 +647,6 @@ def create_price_chart(symbol, time_period, asset_type):
         return {'success': False, 'error': f'Error creating chart: {str(e)}'}
 
 
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -557,13 +662,14 @@ def chat():
         if not user_input:
             return jsonify({'error': 'Please enter a message'})
 
-        # Analyze user input using your existing function
+        # Analyze user input using existing function
         analysis = analyze_user_input(user_input)
         intent = analysis.get('intent')
         symbol = analysis.get('symbol')
         raw_entity = analysis.get('raw_entity')
         time_period = analysis.get('time_period')
         asset_type = analysis.get('asset_type')
+        symbols = analysis.get('symbols')  # legacy, not used anymore
 
         print(f"DEBUG: User input: '{user_input}'")
         print(f"DEBUG: Analysis result: {analysis}")
@@ -573,11 +679,23 @@ def chat():
         is_follow_up = is_follow_up_query(user_input, session_id)
         print(f"DEBUG: Is follow-up: {is_follow_up}")
 
-        # Don't override intent - let the original classification handle it
-        # Personal questions should be classified as "unknown" and handled with redirection
+        # ------------------------------------------------------------------
+        # NEW unified compare path
+        # ------------------------------------------------------------------
+        if intent == "compare":
+            cmp = compare_assets_with_ai(user_input)
+            if cmp["success"]:
+                add_to_conversation(session_id, user_input, cmp["response"], intent)
+                return jsonify({"response": cmp["response"]})
+            else:
+                err = cmp["error"]
+                add_to_conversation(session_id, user_input, err, intent)
+                return jsonify({"response": f"❌ {err}"})
 
-        # Route to appropriate function based on intent
-        if intent == "crypto_price":
+        # ------------------------------------------------------------------
+        # All other intents remain unchanged
+        # ------------------------------------------------------------------
+        elif intent == "crypto_price":
             if symbol:
                 crypto_data = get_crypto_info(symbol)
                 if crypto_data['success']:
@@ -588,7 +706,6 @@ def chat():
 🏦 *Market Cap*: ${crypto_data['market_cap']:,.0f}
 📊 *24h Volume*: ${crypto_data['volume_24h']:,.0f}"""
 
-                    # Add ATH and ATL if available
                     if crypto_data.get('ath'):
                         ath_date = crypto_data['ath_date'][:10] if crypto_data.get('ath_date') else 'N/A'
                         response += f"\n🚀 *All-Time High*: ${crypto_data['ath']:,.2f} ({ath_date})"
@@ -599,10 +716,8 @@ def chat():
 
                     response += f"\n\n*Last Updated: {crypto_data['last_updated']}*"
 
-                    # Add to conversation history
                     add_to_conversation(session_id, user_input, response.strip(), intent,
                                         f"crypto data for {crypto_data['name']}")
-
                     return jsonify({'response': response.strip()})
                 else:
                     error_response = f"❌ {crypto_data['error']}"
@@ -629,10 +744,8 @@ def chat():
 
 Last Updated: {stock_data['last_updated']}"""
 
-                    # Add to conversation history
                     add_to_conversation(session_id, user_input, response.strip(), intent,
                                         f"stock data for {stock_data['symbol']}")
-
                     return jsonify({'response': response.strip()})
                 else:
                     error_response = f"❌ {stock_data['error']}"
@@ -648,7 +761,6 @@ Last Updated: {stock_data['last_updated']}"""
                 time_period = analysis.get('time_period', '30d')
                 asset_type = analysis.get('asset_type')
 
-                # Validate time period
                 valid_periods = ["1d", "7d", "30d", "90d", "1y"]
                 if time_period not in valid_periods:
                     error_response = f"❌ Invalid time period. I can only generate charts for: {', '.join(valid_periods)}"
@@ -661,7 +773,6 @@ Last Updated: {stock_data['last_updated']}"""
                     return jsonify({'response': error_response})
 
                 chart_result = create_price_chart(symbol, time_period, asset_type)
-
                 if chart_result['success']:
                     change_emoji = "📈" if chart_result['price_change'] >= 0 else "📉"
                     response = f"""📊 *{chart_result['symbol']} Price Chart ({time_period})*
@@ -671,10 +782,8 @@ Last Updated: {stock_data['last_updated']}"""
 
 📈 *Chart generated successfully!*"""
 
-                    # Add to conversation history
                     add_to_conversation(session_id, user_input, response.strip(), intent,
                                         f"chart for {chart_result['symbol']}")
-
                     return jsonify({
                         'response': response.strip(),
                         'chart': chart_result['chart_data']
@@ -688,15 +797,12 @@ Last Updated: {stock_data['last_updated']}"""
                 add_to_conversation(session_id, user_input, error_response, intent)
                 return jsonify({'response': error_response})
 
-        # Handle all other cases (define, unknown, and general financial queries)
+        # General financial / define / unknown
         else:
             financial_response = answer_financial_query(user_input, intent, symbol, session_id)
             if financial_response['success']:
                 response = financial_response['response']
-
-                # Add to conversation history
                 add_to_conversation(session_id, user_input, response, intent, user_input)
-
                 return jsonify({'response': response})
             else:
                 error_response = f"❌ {financial_response['error']}"
@@ -706,6 +812,7 @@ Last Updated: {stock_data['last_updated']}"""
     except Exception as e:
         error_response = f'An error occurred: {str(e)}'
         return jsonify({'error': error_response})
+
 
 
 # Optional: Add endpoint to clear conversation history
