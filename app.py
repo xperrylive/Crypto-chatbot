@@ -43,8 +43,8 @@ Your task is to classify a user's financial question and extract:
 - symbols: for comparisons, array of symbols (e.g. ["BTC", "ETH"])
 
 Instructions:
-- If user asks for ANY crypto-related info (price, market cap, ATH, etc.), use intent: "crypto_price"
-- If user asks for ANY stock-related info (price, market cap, volume, etc.), use intent: "stock_price"  
+- If the user asks for the *current price*, *value*, or *market data* of a crypto or stock asset, use the appropriate intent: "crypto_price" or "stock_price"
+- If the user asks what a crypto or stock is, how it works, its history, or other descriptive info, use intent: "define" 
 - If user asks for CHARTS/GRAPHS/VISUALIZATION of crypto/stock prices, use intent: "chart" and extract:
   * time_period: ONLY one of ["1d", "7d", "30d", "90d", "1y"] (default to "30d" if not specified)
   * asset_type: "crypto" for cryptocurrencies (bitcoin, ethereum, etc.) or "stock" for companies (Apple, Tesla, etc.)
@@ -62,6 +62,16 @@ Comparison Examples:
 Chart Examples:
 - "show me bitcoin chart" → chart, BTC, bitcoin, "30d", "crypto"
 - "AAPL 1 year chart" → chart, AAPL, Apple, "1y", "stock"
+
+Definition Examples:
+- "What is bitcoin?" → define
+- "Tell me about ethereum" → define
+- "How does Dogecoin work?" → define
+
+Price Examples:
+- "What is the price of bitcoin?" → crypto_price
+- "How much is ETH worth?" → crypto_price
+
 
 Respond ONLY with JSON like:
 {{"intent": "compare", "symbols": ["ETH", "BTC"], "symbol": null, "raw_entity": null, "time_period": null, "asset_type": null}}
