@@ -1,4 +1,7 @@
-<!DOCTYPE html>
+function sendFact() {
+      document.getElementById("userInput").value = "/fact";
+      sendMessage();
+    }<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -74,14 +77,132 @@
     const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     window.session_id = sessionId;   // expose globally for personality switcher
 
+    // Simple and reliable scroll function
+    function scrollToBottom(force = false) {
+      const chatBox = document.getElementById("chatBox");
+
+      // Force immediate scroll
+      const scrollHeight = chatBox.scrollHeight;
+      const clientHeight = chatBox.clientHeight;
+      const maxScrollTop = scrollHeight - clientHeight;
+
+      chatBox.scrollTop = maxScrollTop;
+
+      // Backup with requestAnimationFrame
+      requestAnimationFrame(() => {
+        chatBox.scrollTop = chatBox.scrollHeight;
+      });
+
+      // Final backup with timeout
+      setTimeout(() => {
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }, 50);
+
+      console.log('Scrolling to bottom - ScrollHeight:', scrollHeight, 'ScrollTop:', chatBox.scrollTop);
+    }
+
+    // Simple message adding with forced scroll
+    function addMessage(sender, text) {
+      const chatBox = document.getElementById("chatBox");
+      const msg = document.createElement("div");
+      msg.className = `message ${sender}`;
+      const formattedText = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, "<br>");
+      msg.innerHTML = `<div class="bubble">${formattedText}</div>`;
+
+      chatBox.appendChild(msg);
+
+      console.log('Message added:', sender, text.substring(0, 50));
+
+      // Force scroll immediately
+      setTimeout(() => {
+        scrollToBottom(true);
+        console.log('Forced scroll after message');
+      }, 10);
+
+      // Backup scroll
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 100);
+    }
+
+    // Simple chart adding with forced scroll
+    function addChart(chartData) {
+      const chatBox = document.getElementById("chatBox");
+      const chartMsg = document.createElement("div");
+      chartMsg.className = "message bot";
+      const chartId = 'chart_' + Date.now();
+      chartMsg.innerHTML = `
+        <div class="bubble chart-container">
+          <img id="${chartId}" src="data:image/png;base64,${chartData}" alt="Price Chart"
+               onclick="openChartModal('${chartId}')" style="cursor:zoom-in" />
+          <div class="chart-zoom-hint">🔍 Click chart to zoom</div>
+        </div>`;
+
+      chatBox.appendChild(chartMsg);
+
+      console.log('Chart added');
+
+      // Force scroll after adding chart
+      setTimeout(() => {
+        scrollToBottom(true);
+        console.log('Forced scroll after chart');
+      }, 50);
+
+      // Additional scroll when image loads
+      const chartImg = document.getElementById(chartId);
+      if (chartImg) {
+        chartImg.onload = () => {
+          console.log('Chart image loaded');
+          setTimeout(() => scrollToBottom(true), 100);
+        };
+      }
+    }
+
+    // Simple typing indicator with forced scroll
+    function addTyping() {
+      const id = "typing-" + Date.now();
+      const chatBox = document.getElementById("chatBox");
+      const typing = document.createElement("div");
+      typing.id = id;
+      typing.className = "message bot";
+      typing.innerHTML = `<div class="bubble typing-indicator">🤔 Analyzing your request...</div>`;
+      chatBox.appendChild(typing);
+
+      console.log('Typing indicator added');
+
+      // Force scroll to show typing
+      setTimeout(() => {
+        scrollToBottom(true);
+        console.log('Forced scroll after typing indicator');
+      }, 10);
+
+      return id;
+    }
+
+    function removeTyping(id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.remove();
+        console.log('Typing indicator removed');
+        // Force scroll after removing
+        setTimeout(() => scrollToBottom(true), 10);
+      }
+    }
+
+    // Enhanced send message with better scroll handling
     function sendMessage() {
       const input = document.getElementById("userInput");
       const text = input.value.trim();
       if (!text) return;
 
+      // Add user message and scroll
       addMessage("user", text);
       input.value = "";
 
+      // Show typing and scroll
       const typingId = addTyping();
 
       fetch("/chat", {
@@ -95,9 +216,13 @@
       .then(res => res.json())
       .then(data => {
         removeTyping(typingId);
+
         if (data.response) {
           addMessage("bot", data.response);
-          if (data.chart) addChart(data.chart);
+          if (data.chart) {
+            // Small delay before adding chart to ensure message is rendered
+            setTimeout(() => addChart(data.chart), 100);
+          }
         } else if (data.error) {
           addMessage("bot", "❌ " + data.error);
         } else {
@@ -142,35 +267,6 @@
     });
     updateButtons();     // initial highlight
 
-
-    function addMessage(sender, text) {
-      const chatBox = document.getElementById("chatBox");
-      const msg = document.createElement("div");
-      msg.className = `message ${sender}`;
-      const formattedText = text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/\n/g, "<br>");
-      msg.innerHTML = `<div class="bubble">${formattedText}</div>`;
-      chatBox.appendChild(msg);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
-    function addChart(chartData) {
-      const chatBox = document.getElementById("chatBox");
-      const chartMsg = document.createElement("div");
-      chartMsg.className = "message bot";
-      const chartId = 'chart_' + Date.now();
-      chartMsg.innerHTML = `
-        <div class="bubble chart-container">
-          <img id="${chartId}" src="data:image/png;base64,${chartData}" alt="Price Chart"
-               onclick="openChartModal('${chartId}')" style="cursor:zoom-in" />
-          <div class="chart-zoom-hint">🔍 Click chart to zoom</div>
-        </div>`;
-      chatBox.appendChild(chartMsg);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
     function openChartModal(chartId) {
       document.getElementById('modalChartImage').src = document.getElementById(chartId).src;
       document.getElementById('chartModal').style.display = 'block';
@@ -180,23 +276,6 @@
     function closeChartModal() {
       document.getElementById('chartModal').style.display = 'none';
       document.body.style.overflow = 'auto';
-    }
-
-    function addTyping() {
-      const id = "typing-" + Date.now();
-      const chatBox = document.getElementById("chatBox");
-      const typing = document.createElement("div");
-      typing.id = id;
-      typing.className = "message bot";
-      typing.innerHTML = `<div class="bubble typing-indicator">🤔 Analyzing your request...</div>`;
-      chatBox.appendChild(typing);
-      chatBox.scrollTop = chatBox.scrollHeight;
-      return id;
-    }
-
-    function removeTyping(id) {
-      const el = document.getElementById(id);
-      if (el) el.remove();
     }
 
     function fillExample(text) {
@@ -219,6 +298,8 @@
               <div class="message bot">
                 <div class="bubble">🔄 Conversation cleared! I'm ready to help you with financial queries.</div>
               </div>`;
+            // Scroll after clearing
+            scrollToBottom();
           } else {
             addMessage("bot", "❌ Failed to clear conversation history.");
           }
@@ -230,6 +311,7 @@
       }
     }
 
+    // Enhanced enter key handling with scroll
     document.getElementById("userInput").addEventListener("keypress", e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -237,12 +319,21 @@
       }
     });
 
-    document.addEventListener("DOMContentLoaded", () => document.getElementById("userInput").focus());
+    // Remove the observer and complex event handlers - they may be interfering
+    // Focus input on load and test scroll
+    document.addEventListener("DOMContentLoaded", () => {
+      const input = document.getElementById("userInput");
+      const chatBox = document.getElementById("chatBox");
 
-    function sendFact() {
-  document.getElementById("userInput").value = "/fact";
-  sendMessage();
-}
+      input.focus();
+      console.log('DOM loaded - ChatBox height:', chatBox.scrollHeight, 'Client height:', chatBox.clientHeight);
+
+      // Test scroll on load
+      setTimeout(() => {
+        scrollToBottom(true);
+        console.log('Initial scroll test');
+      }, 100);
+    });
   </script>
 </body>
 </html>

@@ -9,9 +9,10 @@ body {
   font-family: 'Poppins', sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
+  height: 100vh !important;  /* CRITICAL: Fixed height */
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow: hidden !important;  /* CRITICAL: Prevent body scroll */
   position: relative;
 }
 
@@ -128,16 +129,24 @@ body::before {
   color: #ddd;
 }
 
-/* Chat Body - Adjusted for minimized fixed elements */
 .chat-body {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: auto !important;  /* CRITICAL: Force scrolling */
+  overflow-x: hidden;
   padding: 1.5rem;
   position: relative;
   z-index: 1;
-  scroll-behavior: smooth;
-  margin-top: 125px; /* Space for minimized header + personality bar */
-  margin-bottom: 220px; /* Space for minimized footer + suggestions */
+  scroll-behavior: auto !important;  /* CRITICAL: Remove smooth scroll interference */
+  margin-top: 125px;
+  margin-bottom: 220px;
+
+  /* CRITICAL: Set explicit height so it can actually scroll */
+  height: calc(100vh - 345px) !important;
+  max-height: calc(100vh - 345px) !important;
+
+  /* Ensure proper flex container */
+  display: flex;
+  flex-direction: column;
 }
 
 .message {
@@ -725,6 +734,8 @@ body::before {
     padding: 1.2rem;
     margin-top: 175px;
     margin-bottom: 350px;
+    height: calc(100vh - 525px) !important;  /* CRITICAL: Adjusted height */
+    max-height: calc(100vh - 525px) !important;
   }
 
   .chat-footer {
@@ -812,6 +823,8 @@ body::before {
   .chat-body {
     margin-top: 160px;
     margin-bottom: 320px;
+    height: calc(100vh - 480px) !important;  /* CRITICAL: Adjusted height */
+    max-height: calc(100vh - 480px) !important;
   }
 
   .chat-footer {
